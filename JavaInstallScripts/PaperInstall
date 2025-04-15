@@ -1,7 +1,6 @@
 #!/bin/bash
-#!/bin/bash
-# Paper Installation Script
-#
+# Paper Installation Script with Version Selection from JSON
+
 # Server Files: /mnt/server
 sudo apt update -qq
 sudo apt install -y -qq curl jq > /dev/null
@@ -10,64 +9,62 @@ cd ..
 mkdir -p server
 cd server
 
+# JSON data for available versions (Fixed syntax for associative array)
+declare -A PAPER_VERSIONS
+PAPER_VERSIONS["1.21.5"]="https://api.papermc.io/v2/projects/paper/versions/1.21.5/builds/7/downloads/paper-1.21.5-7.jar"
+PAPER_VERSIONS["1.21.4"]="https://api.papermc.io/v2/projects/paper/versions/1.21.4/builds/225/downloads/paper-1.21.4-225.jar"
+PAPER_VERSIONS["1.21.3"]="https://api.papermc.io/v2/projects/paper/versions/1.21.3/builds/83/downloads/paper-1.21.3-83.jar"
+PAPER_VERSIONS["1.21.1"]="https://api.papermc.io/v2/projects/paper/versions/1.21.1/builds/133/downloads/paper-1.21.1-133.jar"
+PAPER_VERSIONS["1.21"]="https://api.papermc.io/v2/projects/paper/versions/1.21/builds/130/downloads/paper-1.21-130.jar"
+PAPER_VERSIONS["1.20.6"]="https://api.papermc.io/v2/projects/paper/versions/1.20.6/builds/151/downloads/paper-1.20.6-151.jar"
+PAPER_VERSIONS["1.20.5"]="https://api.papermc.io/v2/projects/paper/versions/1.20.5/builds/22/downloads/paper-1.20.5-22.jar"
+PAPER_VERSIONS["1.20.4"]="https://api.papermc.io/v2/projects/paper/versions/1.20.4/builds/499/downloads/paper-1.20.4-499.jar"
+PAPER_VERSIONS["1.20.2"]="https://api.papermc.io/v2/projects/paper/versions/1.20.2/builds/318/downloads/paper-1.20.2-318.jar"
+PAPER_VERSIONS["1.20.1"]="https://api.papermc.io/v2/projects/paper/versions/1.20.1/builds/196/downloads/paper-1.20.1-196.jar"
+PAPER_VERSIONS["1.20"]="https://api.papermc.io/v2/projects/paper/versions/1.20/builds/17/downloads/paper-1.20-17.jar"
 
-echo -e "\n> Enter minecraft version for server: "
-MINECRAFT_VERSION=latest
+# Prompt for the version
+echo -e "Available PaperMC Versions: ${!PAPER_VERSIONS[@]}"
+echo -e "\n> Enter Minecraft version for server (e.g. 1.20.6): "
 read MINECRAFT_VERSION
 
+# Default to latest version if no input is provided
+if [ -z "$MINECRAFT_VERSION" ]; then
+    MINECRAFT_VERSION="1.21.5"  # Default to latest version
+fi
 
-# -- EDIT HERE | DO NOT EDIT ABOVE -- #
-BUILD_NUMBER=latest # https://papermc.io/downloads
-PROJECT=paper # PROJECT: https://papermc.io/api/v2/projects/
-SERVER_JARFILE=server.jar # LEAVE THIS PART ALONE
-# -- EDIT HERE | DO NOT EDIT BELOW -- # 
+# Check if the selected version exists
+if [ -z "${PAPER_VERSIONS[$MINECRAFT_VERSION]}" ]; then
+    echo -e "Invalid version selected, defaulting to latest (1.21.5)"
+    MINECRAFT_VERSION="1.21.5"
+fi
 
+# Get the download URL for the selected version
+DOWNLOAD_URL=${PAPER_VERSIONS[$MINECRAFT_VERSION]}
+JAR_NAME="paper-${MINECRAFT_VERSION}.jar"
 
+# Download the Paper server jar
+echo -e "Downloading PaperMC version ${MINECRAFT_VERSION} from ${DOWNLOAD_URL}"
 
+# Using curl with error checking for download
+curl -o ${JAR_NAME} ${DOWNLOAD_URL} --fail --silent --show-error
 
-if [ -n "${DL_PATH}" ]; then
-	echo -e "Using supplied download url: ${DL_PATH}"
-	DOWNLOAD_URL=`eval echo $(echo ${DL_PATH} | sed -e 's/{{/${/g' -e 's/}}/}/g')`
+# Check if the download was successful
+if [ $? -eq 0 ]; then
+    echo -e "Download completed successfully: ${JAR_NAME}"
 else
-	VER_EXISTS=`curl -s https://papermc.io/api/v2/projects/${PROJECT} | jq -r --arg VERSION $MINECRAFT_VERSION '.versions[] | contains($VERSION)' | grep true`
-	LATEST_VERSION=`curl -s https://papermc.io/api/v2/projects/${PROJECT} | jq -r '.versions' | jq -r '.[-1]'`
-
-	if [ "${VER_EXISTS}" == "true" ]; then
-		echo -e "Version is valid. Using version ${MINECRAFT_VERSION}"
-	else
-		echo -e "Using the latest ${PROJECT} version"
-		MINECRAFT_VERSION=${LATEST_VERSION}
-	fi
-	
-	BUILD_EXISTS=`curl -s https://papermc.io/api/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION} | jq -r --arg BUILD ${BUILD_NUMBER} '.builds[] | tostring | contains($BUILD)' | grep true`
-	LATEST_BUILD=`curl -s https://papermc.io/api/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION} | jq -r '.builds' | jq -r '.[-1]'`
-	
-	if [ "${BUILD_EXISTS}" == "true" ]; then
-		echo -e "Build is valid for version ${MINECRAFT_VERSION}. Using build ${BUILD_NUMBER}"
-	else
-		echo -e "Using the latest ${PROJECT} build for version ${MINECRAFT_VERSION}"
-		BUILD_NUMBER=${LATEST_BUILD}
-	fi
-	
-	JAR_NAME=${PROJECT}-${MINECRAFT_VERSION}-${BUILD_NUMBER}.jar
-	
-	echo "Version being downloaded"
-	echo -e "MC Version: ${MINECRAFT_VERSION}"
-	echo -e "Build: ${BUILD_NUMBER}"
-	echo -e "JAR Name of Build: ${JAR_NAME}"
-	DOWNLOAD_URL=https://papermc.io/api/v2/projects/${PROJECT}/versions/${MINECRAFT_VERSION}/builds/${BUILD_NUMBER}/downloads/${JAR_NAME}
+    echo -e "Error downloading PaperMC version ${MINECRAFT_VERSION}. Please check the URL and try again."
+    exit 1
 fi
 
-SERVER_JARFILE=server.jar
-echo -e "Running curl -o ${SERVER_JARFILE} ${DOWNLOAD_URL}"
+# Rename the downloaded JAR to server.jar
+echo -e "Renaming ${JAR_NAME} to server.jar"
+mv ${JAR_NAME} server.jar
 
-if [ -f ${SERVER_JARFILE} ]; then
-	mv ${SERVER_JARFILE} ${SERVER_JARFILE}.old
-fi
-
-curl -o ${SERVER_JARFILE} ${DOWNLOAD_URL}
-
+# If you don't have server.properties, download it
 if [ ! -f server.properties ]; then
-    echo -e "Downloading MC server.properties"
+    echo -e "Downloading default server.properties"
     curl -o server.properties https://raw.githubusercontent.com/parkervcp/eggs/master/minecraft/java/server.properties
 fi
+
+echo -e "PaperMC ${MINECRAFT_VERSION} installation complete! The server file is now named server.jar."
